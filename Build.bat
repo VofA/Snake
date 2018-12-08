@@ -1,0 +1,1 @@
+bash -c "dos2unix Build.sh; ./Build.sh"
