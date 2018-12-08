@@ -1,126 +1,188 @@
+#include <chrono>
+#include <deque>
 #include <iostream>
 #include <ncurses.h>
 #include <string>
-
-/*
-
-Обработка нажатий клавиш
-Проверка столкновения
-Проверка съедания еды
-Создание еды
-Отрисовка карты
-
-*/
+#include <thread>
+#include <vector>
 
 struct sPoint {
-  int x = 0;
-  int y = 0;
+  int x       = 0;
+  int y       = 0;
+  char symbol = ' ';
 };
-sPoint food;
 
 enum sDirection { STOP = 0, UP, DOWN, LEFT, RIGHT };
+
 struct sPlayer {
   sDirection direction;
-  std::vector<sPoint> position;
+  std::deque<sPoint> position;
 };
 
 sPlayer player;
+sPoint food;
 
 const int width  = 20;
 const int height = 10;
-unsigned int score;
 
-void zeroGame() {
-  std::vector<int> position;
-  player.position player.x = width / 2;
-  player.y                 = height / 2;
-  food.x                   = rand() % width;
-  food.y                   = rand() % height;
-  score                    = 0;
+unsigned int score    = 0;
+unsigned int maxScore = 0;
+
+const unsigned int tickTime = 150;
+
+bool foodCheck() {
+  for (const auto &i : player.position) {
+    if (i.x == food.x && i.y == food.y) {
+      return true;
+    }
+  }
+  return false;
 }
 
 void foodGenerate() {
+  do {
+    food.x = rand() % (width - 1) + 1;
+    food.y = rand() % (height - 1) + 1;
+  } while (foodCheck());
 }
 
-void draw(int coordX, int coordY) {
-  clear();
+void zeroGame() {
+  food.symbol      = '~';
+  player.direction = STOP;
 
-  for (int i = 0; i < width + 2; ++i) {
-    std::cout << "#";
+  player.position.clear();
+
+  sPoint head{width / 2, height / 2, 'O'};
+  player.position.push_front(head);
+
+  if (maxScore < score) {
+    maxScore = score;
   }
-  std::cout << "\n";
 
-  for (int y = 0; y < height; ++y) {
-    for (int x = 0; x < width; ++x) {
-      if (coordX == x && coordY == y) {
-        if (y == coordY && x == coordX) {
-          std::cout << "*";
-        } else if (y == fruitY && x == fruitX) {
-          std::cout << "F";
-        } else {
-          std::cout << " ";
-        }
-        if (x == 0) {
-          std::cout << "#";
-        }
-      }
+  score = 0;
 
-      if (x == width - 1) {
-        std::cout << "#";
-      }
+  foodGenerate();
+}
+
+bool checkCollision() {
+  for (const auto &i : player.position) {
+    if (i.x < 1 || i.x > width - 1 || i.y < 1 || i.y > height - 1) {
+      return true;
     }
-    std::cout << "\n";
   }
-
-  for (int i = 0; i < width + 2; ++i) {
-    std::cout << "#";
+  for (auto i = player.position.begin() + 1; i < player.position.end(); ++i) {
+    if (player.position[0].x == i->x && player.position[0].y == i->y) {
+      return true;
+    }
   }
-  std::cout << "\n";
-}
-void input() {
+  return false;
 }
 
-void logic() {
+void drawHandler() {
+  while (true) {
+    clear();
+
+    for (int y = 0; y <= height; ++y) {
+      mvprintw(y, 0, "#");
+      mvprintw(y, width, "#");
+    }
+
+    for (int x = 0; x <= width; ++x) {
+      mvprintw(0, x, "#");
+      mvprintw(height, x, "#");
+    }
+
+    for (const auto &i : player.position) {
+      mvprintw(i.y, i.x, "%c", i.symbol);
+    }
+
+    mvprintw(food.y, food.x, "%c", food.symbol);
+
+    mvprintw(height + 1, 0, "Score: %u", score);
+    mvprintw(height + 2, 0, "Max score: %u", maxScore);
+    move(height + 3, 0);
+
+    refresh();
+    std::this_thread::sleep_for(std::chrono::milliseconds(tickTime));
+  }
+}
+
+void inputHandler() {
+  while (true) {
+    switch (getch()) {
+      case 'w':
+        player.direction = player.direction == DOWN ? player.direction : UP;
+        break;
+      case 'a':
+        player.direction = player.direction == RIGHT ? player.direction : LEFT;
+        break;
+      case 's':
+        player.direction = player.direction == UP ? player.direction : DOWN;
+        break;
+      case 'd':
+        player.direction = player.direction == LEFT ? player.direction : RIGHT;
+        break;
+    }
+  }
 }
 
 int main() {
   srand((unsigned)time(NULL));
+  initscr();
+  noecho();
 
-  setup();
-  draw(1, 1);
-  while (!gameOver) {
+  zeroGame();
 
-    initscr();
-    char key = getch();
+  std::thread threadInputHandler(inputHandler);
+  threadInputHandler.detach();
 
-    int relativeX = 0;
-    int relativeY = 0;
+  std::thread threadDrawHandler(drawHandler);
+  threadDrawHandler.detach();
 
-    switch (key) {
-      case 'w':
-        relativeY--;
+  while (true) {
+    sPoint relative;
+    sPoint newHead;
+
+    switch (player.direction) {
+      case UP:
+        newHead.symbol = 'A';
+        relative.y--;
         break;
-      case 'a':
-        relativeX--;
+      case LEFT:
+        newHead.symbol = '<';
+        relative.x--;
         break;
-      case 's':
-        relativeY++;
+      case DOWN:
+        newHead.symbol = 'V';
+        relative.y++;
         break;
-      case 'd':
-        relativeX++;
+      case RIGHT:
+        newHead.symbol = '>';
+        relative.x++;
         break;
-      case (char)10:
-        gameOver = true;
-        break;
+      case STOP:
+        continue;
     }
 
-    if (x + relativeX >= 0 && x + relativeX <= width - 1 &&
-        y + relativeY >= 0 && y + relativeY <= height - 1) {
-      y += relativeY;
-      x += relativeX;
+    newHead.x = player.position.front().x + relative.x;
+    newHead.y = player.position.front().y + relative.y;
+    player.position.push_front(newHead);
+
+    if (checkCollision()) {
+      zeroGame();
+      continue;
     }
-    draw(1, 1);
+
+    if (foodCheck()) {
+      score++;
+      foodGenerate();
+    } else {
+      player.position.pop_back();
+    }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(tickTime));
   }
+
   endwin();
 
   return 0;
